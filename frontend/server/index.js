@@ -143,23 +143,42 @@ app.post('/api/login', async (c) => {
   return c.json(fail('用户名或密码错误'))
 })
 
+// 身份码（出库码）自动生成：SFM + 10 位随机数字
+function generateIdentityCode() {
+  const digits = Array.from(crypto.getRandomValues(new Uint8Array(10)))
+    .map((n) => n % 10)
+    .join('')
+  return `SFM${digits}`
+}
+
 app.post('/api/register', async (c) => {
   const body = await readJson(c)
   const username = String(body.username ?? '').trim()
   const password = String(body.password ?? '')
-  const identityCode = String(body.identityCode ?? '').trim()
-  if (!username || !password || !identityCode) return c.json(fail('注册信息不完整'))
+  if (!username || !password) return c.json(fail('注册信息不完整'))
   if (password.length < 6) return c.json(fail('密码长度至少 6 位'))
 
   const dupUser = await c.env.DB.prepare('SELECT 1 FROM users WHERE username = ?').bind(username).first()
   if (dupUser) return c.json(fail('用户名已存在'))
-  const dupCode = await c.env.DB.prepare('SELECT 1 FROM users WHERE identity_code = ?').bind(identityCode).first()
-  if (dupCode) return c.json(fail('身份码已被使用'))
 
-  await c.env.DB.prepare('INSERT INTO users (username, password, role, identity_code) VALUES (?, ?, ?, ?)')
-    .bind(username, await hashPassword(password), 'user', identityCode)
-    .run()
-  return c.json(ok('注册成功'))
+  // 身份码由服务端生成（客户端不再传入）；撞唯一索引时换一个重试
+  let identityCode = ''
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const candidate = generateIdentityCode()
+    try {
+      await c.env.DB.prepare(
+        'INSERT INTO users (username, password, role, identity_code) VALUES (?, ?, ?, ?)'
+      )
+        .bind(username, await hashPassword(password), 'user', candidate)
+        .run()
+      identityCode = candidate
+      break
+    } catch (e) {
+      if (!String(e.message).includes('UNIQUE')) throw e
+    }
+  }
+  if (!identityCode) return c.json(fail('注册失败，请重试'))
+  return c.json(ok('注册成功', { identityCode }))
 })
 
 app.get('/api/getSfmByToken', async (c) => {

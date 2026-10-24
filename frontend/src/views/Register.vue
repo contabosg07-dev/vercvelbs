@@ -21,10 +21,6 @@
                 <input type="password" v-model="password" minlength="6" required />
                 <span>密码（至少 6 位）</span>
                 <i class="fas fa-key"></i>
-                <div class="inputBx password">
-                <input type="text" v-model="identityCode" required />
-                <span>身份码</span>
-                <i class="fas fa-key"></i></div>
               </div>
               
               <div class="inputBx">
@@ -41,25 +37,30 @@
   <script setup>
 import { ref,onMounted, onBeforeUnmount } from 'vue';
 import { useRouter } from 'vue-router';
-import { ElMessage } from 'element-plus';
+import { ElMessage, ElMessageBox } from 'element-plus';
 import axios from 'axios';
 const username = ref('');
 const password = ref('');
-const identityCode = ref('');
 const router = useRouter();
 
 const register = async () => {
   try {
     const response = await axios.post('/api/register', {
       username: username.value,
-      password: password.value,
-      identityCode: identityCode.value
+      password: password.value
     });
 
     const result = response.data;
 
     if (result.type === 'success') {
-      ElMessage.success(result.message || '注册成功！');
+      // 身份码（出库码）由服务端自动生成，注册后展示给用户
+      try {
+        await ElMessageBox.alert(
+          `你的出库码为 ${result.identityCode}，也可随时在首页「出库码」中查看，请截图或抄写保存。`,
+          '注册成功',
+          { confirmButtonText: '去登录', type: 'success' }
+        );
+      } catch {}
       router.push('/');
     } else {
       ElMessage.warning(result.message || '注册失败，请检查信息');
